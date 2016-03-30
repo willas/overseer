@@ -1,10 +1,13 @@
 package fetcher
 
 import (
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -22,11 +25,17 @@ type S3 struct {
 	Region string
 	Bucket string
 	Key    string
+	//UseEmbeddedCert uses a hard-coded certificate (Baltimore CyberTrust Root), which
+	//is the AWS root certificate, retrieved from https://www.digicert.com/digicert-root-certificates.htm.
+	//Useful on devices with an old or non-existent certificate chain.
+	UseEmbeddedCert bool
 	//interal state
-	Interval time.Duration
-	client   *s3.S3
-	delay    bool
-	lastETag string
+	Interval     time.Duration
+	client       *s3.S3
+	http         *http.Client
+	initialDelay bool
+	gzipFailed   bool
+	lastETag     string
 }
 
 func (s *S3) Init() error {
@@ -48,12 +57,10 @@ func (s *S3) Init() error {
 		Credentials: creds,
 		Region:      &s.Region,
 	}
+	if s.UseEmbeddedCert {
+		config.HTTPClient = CreateHTTPSClient(BaltimoreCyberTrustRoot) //S3's root
+	}
 	s.client = s3.New(session.New(config))
-
-	//TODO include this? maybe given access to bucket after init
-	// resp, err := s.client.HeadBucketRequest(&s3.HeadBucketInput{Bucket: &s.Bucket})
-	// if err != nil {}
-
 	//apply defaults
 	if s.Interval == 0 {
 		s.Interval = 5 * time.Minute
@@ -63,10 +70,10 @@ func (s *S3) Init() error {
 
 func (s *S3) Fetch() (io.Reader, error) {
 	//delay fetches after first
-	if s.delay {
+	if s.initialDelay {
 		time.Sleep(s.Interval)
 	}
-	s.delay = true
+	s.initialDelay = true
 	//status check using HEAD
 	head, err := s.client.HeadObject(&s3.HeadObjectInput{Bucket: &s.Bucket, Key: &s.Key})
 	if err != nil {
@@ -81,6 +88,14 @@ func (s *S3) Fetch() (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("GET request failed (%s)", err)
 	}
+	reader := get.Body
+	//gzip file, not gzip content-encoded -> manually de-gzip
+	if !s.gzipFailed && strings.HasSuffix(s.Key, ".gz") && !strings.Contains(*get.ContentEncoding, "gzip") {
+		if reader, err = gzip.NewReader(reader); err != nil {
+			s.gzipFailed = true
+			return nil, err
+		}
+	}
 	//success!
-	return get.Body, nil
+	return reader, nil
 }

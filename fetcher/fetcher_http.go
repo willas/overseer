@@ -16,8 +16,8 @@ type HTTP struct {
 	Interval     time.Duration
 	CheckHeaders []string
 	//interal state
-	delay bool
-	lasts map[string]string
+	initialDelay bool
+	lasts        map[string]string
 }
 
 //if any of these change, the binary has been updated
@@ -40,10 +40,10 @@ func (h *HTTP) Init() error {
 
 func (h *HTTP) Fetch() (io.Reader, error) {
 	//delay fetches after first
-	if h.delay {
+	if h.initialDelay {
 		time.Sleep(h.Interval)
 	}
-	h.delay = true
+	h.initialDelay = true
 	//status check using HEAD
 	resp, err := http.Head(h.URL)
 	if err != nil {

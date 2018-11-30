@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jpillora/opts"
-	"github.com/jpillora/overseer"
-	"github.com/jpillora/overseer/fetcher"
+	"github.com/willas/opts"
+	"github.com/willas/overseer"
+	"github.com/willas/overseer/fetcher"
 )
 
 func main() {
